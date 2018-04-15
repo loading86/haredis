@@ -115,6 +115,6 @@ raftMessage* createRaftMessage();
 
 void freeRaftMessage(raftMessage* msg);
 
-raftMessage* dupRaftMessage(const raftMessage* msg);
+raftMessage* dupRaftMessage(const raftMessage* msg);    
 
 #endif //  
