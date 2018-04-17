@@ -21,5 +21,54 @@ void addInflight(inflights* inf, uint64_t index);
 
 void removeInflights(inflights* inf, uint64_t index);
 
+typedef enum NodeState
+{
+    NodeStateProb,
+    NodeStateReplicate,
+    NodeStateSnapshot
+}NodeState;
+
+typedef struct raftNodeProgress
+{
+    NodeState state;
+    uint64_t match;
+    uint64_t next;
+    bool paused;
+    inflights* ins;
+    uint64_t pendingSnapshotIndex;
+    bool active;
+}raftNodeProgress;
+
+raftNodeProgress* newRaftNodeProgress(uint64_t inflights_size);
+
+void freeRaftNodeProgress(raftNodeProgress* node);
+
+void resetRaftNodeProgress(raftNodeProgress* node, NodeState state);
+
+void becomeProbe(raftNodeProgress* node);
+
+void becomeReplicate(raftNodeProgress* node);
+
+void becomeSnaphot(raftNodeProgress* node, uint64_t pending_snapshot_index);
+
+bool maybeUpdate(raftNodeProgress* node, uint64_t match_index);
+
+void optimisticUpdate(raftNodeProgress* node, uint64_t last_sent_index);
+
+bool maybeDecrTo(raftNodeProgress* node, uint64_t reject_index, uint64_t last_index);
+
+bool canSend(raftNodeProgress* node);
+
+bool shouldAbortSnapshot(raftNodeProgress* node);
+
+void abortSnapshot(raftNodeProgress* node);
+
+
+
+
+
+
+
+
 
 #endif // ! __RAFT_PROGRESS__
