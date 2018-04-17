@@ -30,6 +30,7 @@ typedef enum NodeState
 
 typedef struct raftNodeProgress
 {
+    uint8_t id;
     NodeState state;
     uint64_t match;
     uint64_t next;
@@ -39,7 +40,7 @@ typedef struct raftNodeProgress
     bool active;
 }raftNodeProgress;
 
-raftNodeProgress* newRaftNodeProgress(uint64_t inflights_size);
+raftNodeProgress* newRaftNodeProgress(uint8_t id, uint64_t inflights_size);
 
 void freeRaftNodeProgress(raftNodeProgress* node);
 

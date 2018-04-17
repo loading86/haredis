@@ -56,9 +56,10 @@ void removeInflights(inflights* inf, uint64_t index)
 }
 
 
-raftNodeProgress* newRaftNodeProgress(uint64_t inflights_size)
+raftNodeProgress* newRaftNodeProgress(uint8_t id, uint64_t inflights_size)
 {
     raftNodeProgress* node = zmalloc(sizeof(raftNodeProgress));
+    node->id = id;
     node->state = NodeStateProb;
     node->match = 0;
     node->next = 1;
