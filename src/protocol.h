@@ -32,10 +32,15 @@ typedef enum MessageType
     MessageSnap
 }MessageType;
 
-typedef struct snapshotMetaData
+typedef struct confState
 {
     list* peers;
-    list* learners;
+    list* learners;    
+}confState;
+
+typedef struct snapshotMetaData
+{
+    confState* cs;
     uint64_t lastLogIndex;
     uint64_t lastLogTerm; 
 }snapshotMetaData;
