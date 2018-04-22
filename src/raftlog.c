@@ -162,13 +162,13 @@ void stableSnapTo(raftLog* raftlog, uint64_t index)
     {
         return;
     }
-    if(raftlog->unstableSnapshotMD->peers != NULL)
+    if(raftlog->unstableSnapshotMD->cs->peers != NULL)
     {
-        listRelease(raftlog->unstableSnapshotMD->peers);
+        listRelease(raftlog->unstableSnapshotMD->cs->peers);
     }
-    if(raftlog->unstableSnapshotMD->learners != NULL)
+    if(raftlog->unstableSnapshotMD->cs->learners != NULL)
     {
-        listRelease(raftlog->unstableSnapshotMD->learners);
+        listRelease(raftlog->unstableSnapshotMD->cs->learners);
     }   
     zfree(raftlog->unstableSnapshotMD);
     raftlog->unstableSnapshotMD = NULL;

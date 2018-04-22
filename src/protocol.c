@@ -39,8 +39,8 @@ raftEntry* dupRaftEntry(const raftEntry* entry)
 snapshotMetaData* createSnapshotMetaData()
 {
     snapshotMetaData* ssmd = zmalloc(sizeof(snapshotMetaData));
-    ssmd->peers = listCreate();
-    ssmd->learners = listCreate();
+    ssmd->cs->peers = listCreate();
+    ssmd->cs->learners = listCreate();
     ssmd->lastLogIndex = 0;
     ssmd->lastLogTerm = 0;
     return ssmd;
@@ -52,13 +52,13 @@ void freeSnapshotMetaData(snapshotMetaData* ssmd)
     {
         return;
     }
-    if(ssmd->peers != NULL)
+    if(ssmd->cs->peers != NULL)
     {
-        listRelease(ssmd->peers);
+        listRelease(ssmd->cs->peers);
     }
-    if(ssmd->learners != NULL)
+    if(ssmd->cs->learners != NULL)
     {
-        listRelease(ssmd->learners);
+        listRelease(ssmd->cs->learners);
     }   
     zfree(ssmd);
 }
@@ -70,8 +70,8 @@ snapshotMetaData* dupSnapshotMetaData(const snapshotMetaData* ssmd)
         return NULL;  
     }
     snapshotMetaData* new_ssmd = zmalloc(sizeof(snapshotMetaData));
-    new_ssmd->peers = listDup(ssmd->peers);
-    new_ssmd->learners = listDup(ssmd->learners);
+    new_ssmd->cs->peers = listDup(ssmd->cs->peers);
+    new_ssmd->cs->learners = listDup(ssmd->cs->learners);
     new_ssmd->lastLogIndex = ssmd->lastLogIndex;
     new_ssmd->lastLogTerm = ssmd->lastLogTerm;
     return new_ssmd;
