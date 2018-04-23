@@ -4,31 +4,45 @@
 //#include "server.h"
 raft* newRaft(raftConfig* cfg)
 {
+    raftLog* log = newRaftLog(cfg->storage);
+    hardState hs = getHardState(cfg->storage);
+    confState *cs = getConfState(cfg->storage);
+    list* peers = cfg->peers;
+    if(len(cs->peers) > 0)
+    {
+        if(len(peers) > 0)
+        {
+            assert(false);
+        }
+        peers = cs->peers;
+    }
     raft* r = zmalloc(sizeof(raft));
     r->id = cfg->id;
-    r->electionTick = cfg->electionTick;
-    r->heartbeatTick = cfg->heartbeatTick;
-    r->electionElapsed = 0;
-    r->heartbeatElapsed = 0;
     r->leader = 0;
-    r->voteFor = 0;
     r->maxSizePerMsg = cfg->maxSizePerMsg;
-    r->maxInflightMsg = cfg->maxInflightMsg;
-    r->raftlog = cfg->raftlog;
-    listIter li;
-    r->peersProgress = listCreate();
+    r->maxInflightMsgs = cfg->maxInflightMsgs;
+    r->peers = listCreate();
     r->votes = listCreate();
+    //listSetFreeMethod(free); todo
+    r->electionTimeout = cfg->electionTick;
+    r->heartbeatTimeout = cfg->heartbeatTick;
+    r->checkQuorum = cfg->checkQuorum;
+    r->msgs = listCreate();
+    listSetFreeMethod(r->msgs, freeRaftMessage);
+
+    listIter li;  
     listRewind(cfg->peers,&li);
     uint8_t peer;
     listNode* ln;
     while ((ln = listNext(&li)) != NULL) {
         peer = (uint8_t)ln->value;
-        raftNodeProgress* pr = newRaftNodeProgress(peer, r->maxInflightMsg);
+        raftNodeProgress* pr = newRaftNodeProgress(peer, r->maxInflightMsgs);
         pr->next = 1;
-        listAddNodeTail(r->peersProgress, pr);
+        listAddNodeTail(r->peers, pr);
     }
     becomeFollower(r, r->term, 0);
     return r;
+
 }
 
 void resetRaftTerm(raft* r, uint64_t term)
@@ -134,4 +148,44 @@ void tickHeartbeat(struct raft* r)
 void appendEntry(raft* r, raftEntry* entry)
 {
 
+}
+
+uint64_t quorum(raft* r)
+{
+    return listLength(r->peers)/2 + 1;
+}
+
+void sendMsg(raft* r, raftMessage* msg)
+{
+    msg->from = r->id;
+    if(msg->type == MessageVote || msg->vote == MessageVoteResp)
+    {
+        if(msg->term == 0)
+        {
+            assert(false);
+        }
+    }else 
+    {
+        if(msg->type != 0)
+        {
+            assert(false);
+        }
+        if(msg->type != MessageProp && msg->type != MessageReadIndex)
+        {
+            msg->term = r->term;
+        }
+    }
+    listAddNodeTail(r->msgs, msg);
+}
+
+void sendAppend(raft* r, uint64_t to)
+{
+    raftNodeProgress* pr = getProgress(r, to);
+    if(!canSend(pr))
+    {
+        return;
+    }
+    raftMessage* msg = createRaftMessage();
+    msg->to = to;
+    TermResult term_res = termOf(r->raftlog, pr->next - 1);
 }

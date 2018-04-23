@@ -18,9 +18,9 @@ typedef struct raftConfig
     bool checkQuorum;
     list* peers;
     uint64_t maxSizePerMsg;
-    uint64_t maxInflightMsg;
+    uint64_t maxInflightMsgs;
     uint64_t applied;
-    raftLog* raftlog;
+    memoryStorage* storage;
 }raftConfig;
 
 typedef enum NodeStateType
@@ -37,16 +37,17 @@ typedef struct raft
     uint64_t term;
     uint8_t voteFor;
     NodeStateType state;
-    uint32_t electionTick;
+    uint32_t electionTimeout;
     uint32_t electionElapsed;
     uint32_t electionRandomTimeout;
-    uint32_t heartbeatTick;
+    uint32_t heartbeatTimeout;
     uint32_t heartbeatElapsed;
     bool checkQuorum;
     uint64_t maxSizePerMsg;
-    uint64_t maxInflightMsg;   
-    list* peersProgress;
+    uint64_t maxInflightMsgs;   
+    list* peers;
     list* votes;
+    list* msgs;
     raftLog* raftlog;
     bool pendingConf;
     stepFunc step;
