@@ -1,4 +1,15 @@
 #include "log_unstable.h"
+#include <stdio.h>
+#include <assert.h>
+unstable* createUnstable()
+{
+    unstable* uns = zmalloc(sizeof(unstable));
+    uns->ssmd = createSnapshotMetaData();
+    uns->entries = listCreate();
+    listSetFreeMethod(uns->entries, freeRaftEntry);
+    uns->offset = 0;
+    return uns;
+}
 
 uint64_t unstableMaybeFirstIndex(unstable* u)
 {
@@ -30,7 +41,7 @@ uint64_t unstableMaybeTerm(unstable* u, uint64_t index)
         {
             return UINT64_MAX;
         }
-        if(u->ssmd->lastLogIndex == i)
+        if(u->ssmd->lastLogIndex == index)
         {
             return u->ssmd->lastLogTerm;
         }

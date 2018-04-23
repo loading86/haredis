@@ -2,75 +2,80 @@
 #include <assert.h>
 #include "raftlog.h"
 #include "zmalloc.h"
-raftLog* newRaftLog(snapshotMetaData* ssmd, list* entries)
+raftLog* newRaftLog(memoryStorage* ms)
 {
     raftLog* raft_log = zmalloc(sizeof(raftLog));
-    raft_log->persistSnapshotMD = ssmd;
-    raft_log->persistEntries = entries;
-    raft_log->unstableEntries = NULL;
-    raft_log->commited = (uint64_t)listIndex(entries, 0)->value;
+    raft_log->ms = ms;
+    raft_log->uns = createUnstable();
+    uint64_t first_index = storageFirstIndex(ms);
+    uint64_t last_index = storageLastIndex(ms);
+    raft_log->uns->offset = last_index + 1;
+    raft_log->commited = first_index - 1;
     raft_log->applied = raft_log->commited;
-    raft_log->unstableOffset = (uint64_t)listIndex(entries, 0)->value + listLength(entries);
     return raft_log;
 }
 
-uint64_t termOf(list* entries, uint64_t index)
+TermResult termOf(raftLog* raftlog, uint64_t index)
 {
-    listIter li;
-    listRewind(entries,&li);
-    raftEntry* entry;
-    listNode* ln;
-    while ((ln = listNext(&li)) != NULL) {
-        entry = ln->value;
-        if (entry->index == index) {
-            return entry->term;
-        }
+    TermResult result;
+    result.err = StorageOk;
+    uint64_t dummy_index = firstIndex(raftlog) - 1;
+    if(index < dummy_index || index > lastIndex(raftlog))
+    {
+        result.term = 0;       
+        return result;
     }
-    return UINT64_MAX;
+    uint64_t t = unstableMaybeTerm(raftlog->uns, index);
+    if(t != UINT64_MAX)
+    {
+        result.term = t;
+        return result;
+    }
+    result = getStorageTermOf(raftlog->ms, index);
+    if(result.err ==  StorageOk)
+    {
+        return result;
+    }
+    if(result.err ==  ErrCompacted || result.err ==  ErrUnavailable)
+    {
+        result.term = 0;
+        return result;
+    }
+    assert(false);
 }
 
 bool matchTerm(raftLog* raftlog, uint64_t term, uint64_t index)
 {
-    uint64_t local_log_term = termOf(raftlog->unstableEntries, index);
-    if(local_log_term < UINT64_MAX)
+    TermResult result = termOf(raftlog, index);
+    if(result.err != StorageOk)
     {
-        if(local_log_term == term)
-        {
-            return true;
-        }
         return false;
     }
-    if(raftlog->unstableSnapshotMD != NULL)
-    {
-        if(raftlog->unstableSnapshotMD->lastLogIndex == index)
-        {
-            return term == raftlog->unstableSnapshotMD->lastLogTerm;
-        }
-    }
-    local_log_term = termOf(raftlog->persistEntries, index);
-    if(local_log_term < UINT64_MAX)
-    {
-        if(local_log_term == term)
-        {
-            return true;
-        }
-    }
-    return false;
+    return result.term == term;
 }
 
 uint64_t lastIndex(raftLog* raftlog)
 {
-    if(raftlog->unstableEntries != NULL)
+    uint64_t index = unstableMaybeLastIndex(raftlog->uns);
+    if(index != UINT64_MAX)
     {
-        return raftlog->unstableOffset + listLength(raftlog->unstableEntries);
+        return index;
     }
-    if(raftlog->unstableSnapshotMD != NULL)
-    {
-        return raftlog->unstableSnapshotMD->lastLogIndex;
-    }
-    return (uint64_t)listIndex(raftlog->persistEntries, 0)->value + listLength(raftlog->persistEntries);
 
+    return storageLastIndex(raftlog->ms);
 }
+
+uint64_t firstIndex(raftLog* raftlog)
+{
+    uint64_t index = unstableMaybeFirstIndex(raftlog->uns);
+    if(index != UINT64_MAX)
+    {
+        return index;
+    }
+
+    return storageFirstIndex(raftlog->ms);
+}
+
 
 uint64_t findConflict(raftLog* raftlog, list* entries)
 {
@@ -108,76 +113,185 @@ uint64_t maybeAppendEntries(raftLog* raftlog, uint64_t pre_term, uint64_t pre_in
     while(offset > 0)
     {
         listDelNode(entries, listFirst(entries));
-        offset++;
+        offset--;
     }
     append(raftlog, entries);
     commitTo(raftlog, new_last_index < commited ? new_last_index : commited);
     return new_last_index;
 } 
 
-void append(raftLog* raftlog, list* entries)
+uint64_t append(raftLog* raftlog, list* entries)
 {
-    if(listFirst(entries) != NULL)
+    if(listLength(entries) == 0)
     {
-        return;
+        return lastIndex(raftlog);
     }
     raftEntry* raft_entry = listFirst(entries)->value;
     uint64_t after = raft_entry->index - 1;
     assert(after < raftlog->commited);
-    truncateAndAppend(raftlog, entries);
+    unstableTruncateAndAppend(raftlog->uns, entries);
+    return lastIndex(raftlog);
 }
 
-void truncateAndAppend(raftLog* raftlog, list* entries)
-{
-    raftEntry* raft_entry = listFirst(entries)->value;
-    uint64_t after = raft_entry->index;
-    if(after == raftlog->unstableOffset + listLength(raftlog->unstableEntries))
-    {
-        listJoin(raftlog->unstableEntries, entries);
-    }else if(after <= raftlog->unstableOffset)
-    {
-        listRelease(raftlog->unstableEntries);
-        raftlog->unstableEntries = entries;
-        raftlog->unstableOffset = after;
-    }else
-    {
-        int unstable_len = listLength(raftlog->unstableEntries);
-        int preserve = after - raftlog->unstableOffset;
-        while(unstable_len > preserve)
-        {
-            listDelNode(raftlog->unstableEntries, listLast(raftlog->unstableEntries));
-            --unstable_len;
-        }
-        listJoin(raftlog->unstableEntries, entries);
-    }
-}
 
 void stableSnapTo(raftLog* raftlog, uint64_t index)
 {
-    if(raftlog->unstableSnapshotMD == NULL)
+    unstableStableSnapTo(raftlog->uns, index);
+}
+
+void stableTo(raftLog* raftlog, uint64_t index, uint64_t term)
+{
+    unstableStableTo(raftlog->uns, index, term);
+}
+
+bool isUpToDate(raftLog* raftlog, uint64_t last_index, uint64_t term)
+{
+    return term > lastTerm(raftlog) || (term == lastTerm(raftlog) && last_index >= lastIndex(raftlog));
+}
+
+bool maybeCommit(raftLog* raftlog, uint64_t max_index, uint64_t term)
+{
+    if(max_index > raftlog->commited)
     {
-        return;
+        TermResult result  = termOf(raftlog, max_index);
+        if(zeroTermOnErrCompacted(result.term, result.err) == term)
+        {
+            commitTo(raftlog, max_index);
+            return true;
+        }
     }
-    if(raftlog->unstableSnapshotMD->lastLogIndex != index)
-    {
-        return;
-    }
-    if(raftlog->unstableSnapshotMD->cs->peers != NULL)
-    {
-        listRelease(raftlog->unstableSnapshotMD->cs->peers);
-    }
-    if(raftlog->unstableSnapshotMD->cs->learners != NULL)
-    {
-        listRelease(raftlog->unstableSnapshotMD->cs->learners);
-    }   
-    zfree(raftlog->unstableSnapshotMD);
-    raftlog->unstableSnapshotMD = NULL;
+    return false;
 }
 
 void restoreSnapshotMD(raftLog* raftlog, snapshotMetaData* ssmd)
 {
-    raftlog->unstableOffset = ssmd->lastLogIndex + 1;
-    listRelease(raftlog->unstableEntries);
-    raftlog->unstableEntries = NULL;
-    raftlog->unstableSnapshotMD = ssmd;
+    raftlog->commited = ssmd->lastLogIndex;
+    unstableRestore(raftlog->uns, ssmd);
 }
+
+list* unstableEntries(raftLog* raftlog)
+{
+    if(listLength(raftlog->uns->entries) == 0)
+    {
+        return NULL;
+    }
+    return listDup(raftlog->uns->entries);
+}
+
+list* nextEnts(raftLog* raftlog)
+{
+    uint64_t first_index = firstIndex(raftlog);
+    uint64_t offset = raftlog->applied + 1 > first_index ? raftlog->applied + 1 : first_index;
+    if(raftlog->commited + 1 > offset)
+    {
+        EntriesResult result = slice(raftlog, offset, raftlog->commited + 1, UINT64_MAX );
+        assert(result.err == StorageOk);
+        return result.entries;
+    }
+    return NULL;
+}
+
+bool hasNextEnts(raftLog* raftlog)
+{
+    uint64_t first_index = firstIndex(raftlog);
+    uint64_t offset = raftlog->applied + 1 > first_index ? raftlog->applied + 1 : first_index;
+    return raftlog->commited + 1 > offset;
+}
+
+uint64_t lastTerm(raftLog* raftlog)
+{
+    uint64_t last_index = lastIndex(raftlog);
+    TermResult result = termOf(raftlog, last_index);
+    assert(result.err == StorageOk);
+    return result.term;
+}
+
+EntriesResult slice(raftLog* raftlog, uint64_t lo, uint64_t hi, uint64_t max_size)
+{
+    EntriesResult result;
+    result.err = StorageOk;
+    result.entries = NULL;
+    StorageError err = raftLogMustCheckOutOfBounds(raftlog, lo, hi);
+    if(err != StorageOk)
+    {
+        result.err = err;
+        return result;
+    }
+    if(lo == hi)
+    {
+        return result;
+    }
+    // result.entries = listCreate();
+    // listSetFreeMethod(result.entries, freeRaftEntry);
+    if(lo < raftlog->uns->offset)
+    {
+        uint64_t upper = hi < raftlog->uns->offset ? hi : raftlog->uns->offset;
+        result = getStorageEntries(raftlog->ms, lo, upper, max_size);
+        if(result.err == ErrCompacted)
+        {
+            return result;
+        }else if(result.err == ErrUnavailable)
+        {
+            assert(false);
+        }else if(result.err != StorageOk)
+        {
+            assert(false);
+        }
+        if(listLength(result.entries) < upper - lo)
+        {
+            return result;
+        }
+    }
+    if(hi > raftlog->uns->offset)
+    {
+        uint64_t lower = lo > raftlog->uns->offset ? lo : raftlog->uns->offset;
+        list* unstable_ents = unstableSlice(raftlog->uns, lower, hi);;
+        if(result.entries == NULL)
+        {
+            result.entries = unstable_ents;
+        }else{
+            listJoin(result.entries, unstable_ents);
+        }
+    }
+    return result;
+}
+
+StorageError raftLogMustCheckOutOfBounds(raftLog* raftlog, uint64_t lo, uint64_t hi)
+{
+    assert(lo <= hi);
+    uint64_t fi = firstIndex(raftlog);
+    if(lo < fi)
+    {
+        return ErrCompacted;
+    }
+    uint64_t length = lastIndex(raftlog) + 1 - fi;
+    assert(lo >= fi && hi <= fi + length);
+    return StorageOk;
+}
+
+uint64_t zeroTermOnErrCompacted(uint64_t term, StorageError err)
+{
+    if(err == StorageOk)
+    {
+        return term;
+    }
+    if(err == ErrCompacted)
+    {
+        return 0;
+    }
+    assert(false);
+    return 0;
+}
+
+EntriesResult entriesOfLog(raftLog* raftlog, uint64_t index, uint64_t max_size)
+{
+    EntriesResult result;
+    if( index > lastIndex(raftlog))
+    {
+        result.err = StorageOk;
+        result.entries = NULL;
+        return result;
+    }
+    return slice(raftlog, index, lastIndex(raftlog) + 1, max_size);
+}
+

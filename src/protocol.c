@@ -39,8 +39,7 @@ raftEntry* dupRaftEntry(const raftEntry* entry)
 snapshotMetaData* createSnapshotMetaData()
 {
     snapshotMetaData* ssmd = zmalloc(sizeof(snapshotMetaData));
-    ssmd->cs->peers = listCreate();
-    ssmd->cs->learners = listCreate();
+    ssmd->cs = createConfState();
     ssmd->lastLogIndex = 0;
     ssmd->lastLogTerm = 0;
     return ssmd;
@@ -52,14 +51,7 @@ void freeSnapshotMetaData(snapshotMetaData* ssmd)
     {
         return;
     }
-    if(ssmd->cs->peers != NULL)
-    {
-        listRelease(ssmd->cs->peers);
-    }
-    if(ssmd->cs->learners != NULL)
-    {
-        listRelease(ssmd->cs->learners);
-    }   
+    freeConfState(ssmd->cs);  
     zfree(ssmd);
 }
 
@@ -70,8 +62,7 @@ snapshotMetaData* dupSnapshotMetaData(const snapshotMetaData* ssmd)
         return NULL;  
     }
     snapshotMetaData* new_ssmd = zmalloc(sizeof(snapshotMetaData));
-    new_ssmd->cs->peers = listDup(ssmd->cs->peers);
-    new_ssmd->cs->learners = listDup(ssmd->cs->learners);
+    new_ssmd->cs = dupConfState(ssmd->cs);
     new_ssmd->lastLogIndex = ssmd->lastLogIndex;
     new_ssmd->lastLogTerm = ssmd->lastLogTerm;
     return new_ssmd;
@@ -165,3 +156,26 @@ raftMessage* dupRaftMessage(const raftMessage* msg)
     return new_msg;
 }
 
+
+confState* createConfState()
+{
+    confState* cs = zmalloc(sizeof(confState));
+    cs->peers = listCreate();
+    cs->learners = listCreate();
+    return cs;
+}
+
+confState* dupConfState(const confState* cs)
+{
+    confState* new_cs = zmalloc(sizeof(confState));
+    new_cs->peers = listDup(cs->peers);
+    new_cs->learners = listDup(cs->learners);
+    return new_cs;
+}
+
+void freeConfState(confState* cs)
+{
+    listRelease(cs->peers);
+    listRelease(cs->learners);
+    zfree(cs);
+}

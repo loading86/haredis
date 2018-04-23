@@ -67,12 +67,12 @@ typedef struct raftMessage
     sds context;
 }raftMessage;
 
-typedef struct persistentState 
+typedef struct hardState 
 {
     uint64_t commited;
     uint64_t term;
     uint8_t voteFor;
-}persistentState;
+}hardState;
 
 typedef enum ConfChangeType
 {
@@ -87,9 +87,11 @@ typedef struct ConfChange
     uint64_t nodeID;
 }ConfChange;
 
+confState* createConfState();
 
+confState* dupConfState(const confState* cs);
 
-
+void freeConfState(confState* cs);
 
 
 

@@ -8,6 +8,8 @@ typedef struct unstable
     uint64_t offset;
 }unstable;
 
+unstable* createUnstable();
+
 uint64_t unstableMaybeFirstIndex(unstable* u);
 
 uint64_t unstableMaybeLastIndex(unstable* u);
