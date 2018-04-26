@@ -188,4 +188,40 @@ void sendAppend(raft* r, uint64_t to)
     raftMessage* msg = createRaftMessage();
     msg->to = to;
     TermResult term_res = termOf(r->raftlog, pr->next - 1);
+    EntriesResult entries_res = entriesOfLog(r->raftlog, pr->next, UINT64_MAX);
+    if(term_res.err != StorageOk || entries_res.err != StorageOk)
+    {
+        if(!pr->active)
+        {
+            return;
+        }
+        msg->type = MessageSnap;
+        //TODO
+    }else
+    {
+        msg->type = MessageApp;
+        msg->preLogIndex = pr->next - 1;
+        msg->preLogTerm = term_res.term;
+        msg->entries = entries_res.entries;
+        msg->commited = r->raftlog->commited;
+        int len = listLength(msg->entries);
+        if(len != 0)
+        {
+            if(pr->state == NodeStateReplicate)
+            {
+                raftEntry* ent = listLast(msg->entries)->value;
+                uint64_t last_index = ent->index;
+                optimisticUpdate(pr, last_index);
+                addInflight(pr->ins, last_index);
+            }else if(pr->state == NodeStateProb)
+            {
+
+            }else
+            {
+                asseet(false);
+            }
+        }
+
+    }
+    sendMsg(r, msg);
 }
