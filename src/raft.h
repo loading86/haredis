@@ -52,6 +52,7 @@ typedef struct raft
     bool pendingConf;
     stepFunc step;
     tickFunc tick;
+    list* readStates;
 }raft;
 
 raft* newRaft(raftConfig* cfg);

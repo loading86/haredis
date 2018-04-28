@@ -29,7 +29,10 @@ raft* newRaft(raftConfig* cfg)
     r->checkQuorum = cfg->checkQuorum;
     r->msgs = listCreate();
     listSetFreeMethod(r->msgs, freeRaftMessage);
-
+    listSetDupMethod(r->msgs, dupRaftMessage);
+    r->readStates = listCreate();
+    listSetFreeMethod(r->readStates, freeReadIndex);
+    listSetDupMethod(r->readStates, dupReadIndex);
     listIter li;  
     listRewind(cfg->peers,&li);
     uint8_t peer;
@@ -122,6 +125,96 @@ raftNodeProgress* getProgress(raft* r, uint8_t id)
 
 void stepFollower(struct raft* r, raftMessage* msg)
 {
+    switch(msg->type)
+    {
+        case MessageBeat:
+            broadcastHeartbeat();
+            return;
+        case MessageProp:
+            assert(listLength(msg->entries) != 0);
+            raftNodeProgress* pr = getProgress(r, r->id);
+            if(pr == NULL)
+            {
+                return;
+            }
+            listNode* n = listFirst(msg->entries);
+            while(n != NULL)
+            {
+                raftEntry* ent = n->value;
+                if(ent->type == EntryConfChange)
+                {
+                    if(r->pendingConf)
+                    {
+                        ent->type = EntryNormal;
+                    }
+                    r->pendingConf = true;
+                }               
+            }
+            appendEntries(r, msg->entries);
+            broadCastAppend(r);
+            return;
+        case MessageReadIndex:
+            if(quorum(r) > 1)
+            {
+                TermResult res = termOf(r, r->raftlog->commited);
+                uint64_t t = zeroTermOnErrCompacted(res.term, res.err);
+                if(t != r.term)
+                {
+                    return;
+                }
+                if(msg->from == 0 || msg->from == r->id)
+                {
+                    ReadState *rs = createReadState();
+                    rs->index = r->raftlog->commited;
+                    raftEntry* ent = listFirst(msg->entries)->value;
+                    rs->requestCtx = sdsdup(ent->data);
+                    listAddNodeTail(r->readStates, rs);
+                }else 
+                {
+                    raftMessage* m = createRaftMessage();
+                    m->to = msg->from;
+                    m->type = MessageReadIndexResp;
+                    m->index = r->raftlog->commited;
+                    listRelease(m->entries);
+                    m->entries = listDup(msg->entries);
+                    sendMsg(r, m);
+                }
+            }else 
+            {
+                ReadState *rs = createReadState();
+                rs->index = r->raftlog->commited;
+                raftEntry* ent = listFirst(msg->entries)->value;
+                rs->requestCtx = sdsdup(ent->data);
+                listAddNodeTail(r->readStates, rs);
+            }
+            return;
+    }
+
+    raftNodeProgress* pr = getProgress(msg->from);
+    if(pr == NULL)
+    {
+        return;
+    }
+    
+    switch(msg->type)
+    {
+        case MessageAppResp:
+            pr->active = true;
+            if(msg->reject)
+            {
+                if(maybeDecrTo(pr, msg->preLogIndex, msg->lastMatchIndex))
+                {
+                    if(pr->state == NodeStateReplicate)
+                    {
+                        becomeProbe(pr);
+                    }
+                }
+                sendAppend(msg->from);
+            }else
+            {
+                
+            }
+    }
 
 }
 
@@ -149,6 +242,25 @@ void appendEntry(raft* r, raftEntry* entry)
 {
 
 }
+
+void appendEntries(raft* r, list* entries)
+{
+    uint64_t last_index = lastIndex(r->raftlog);
+    listNode* n = listFirst(msg->entries);
+    uint64_t off = 1;
+    while(n != NULL)
+    {
+        raftEntry* ent = n->value;
+        ent->term = r->term;
+        ent->index = last_index + off;
+        off++;
+    }
+    append(r->raftlog, entries);
+    raftNodeProgress* pr = getProgress(r->id);
+    maybeUpdate(pr, lastIndex(r->raftlog));
+    maybeCommit(r);
+}
+
 
 uint64_t quorum(raft* r)
 {
