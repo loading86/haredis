@@ -32,6 +32,7 @@
 #define __ADLIST_H__
 
 /* Node, List, and Iterator are the only data structures used currently. */
+typedef void (*traverseFunc)(void *ptr);
 
 typedef struct listNode {
     struct listNode *prev;
@@ -87,6 +88,8 @@ void listRewind(list *list, listIter *li);
 void listRewindTail(list *list, listIter *li);
 void listRotate(list *list);
 void listJoin(list *l, list *o);
+
+void listApplyFunc(list *l, traverseFunc func);
 
 /* Directions for iterators */
 #define AL_START_HEAD 0

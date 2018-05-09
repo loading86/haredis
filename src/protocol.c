@@ -8,7 +8,24 @@ raftEntry* createRaftEntry()
     entry->term = 0;
     entry->index = 0;
     entry->entryType = EntryNormal;
+    entry->refCnt = 1;
     return entry;
+}
+
+void incRaftEntryRefCnt(raftEntry* entry)
+{
+    entry->refCnt += 1;
+}
+
+void decRaftEntryRefCnt(raftEntry* entry)
+{
+    if(entry->refCnt == 1)
+    {
+        freeRaftEntry(entry);
+    }else
+    {
+        entry->refCnt -= 1;
+    }
 }
 
 void freeRaftEntry(raftEntry* entry)
@@ -19,6 +36,16 @@ void freeRaftEntry(raftEntry* entry)
     }
     sdsfree(entry->data);
     zfree(entry);
+}
+
+raftEntry* copyRaftEntry(raftEntry* entry)
+{
+    if(entry == NULL)
+    {
+        return NULL;
+    }
+    incRaftEntryRefCnt(entry);
+    return entry;
 }
 
 raftEntry* dupRaftEntry(const raftEntry* entry)

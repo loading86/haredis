@@ -64,7 +64,8 @@ EntriesResult getStorageEntries(memoryStorage* ms, uint64_t lo, uint64_t hi, uin
     uint64_t count = upper - lower;
     while(count > 0)
     {
-        raftEntry* ent = dupRaftEntry(node->value);
+        incRaftEntryRefCnt()node->value;
+        raftEntry* ent = node->value;
         listAddNodeTail(result.entries, ent);
         node = listNextNode(node);
         count--;
@@ -151,10 +152,11 @@ StorageError AppendEntriesToStorage(memoryStorage* ms, list* ents)
     {
         return StorageOk;
     }
+    list* copy_entries = listDup(ents);
     uint64_t first = storageFirstIndex(ms);
     listNode* node = listFirst(ms->entries);
     raftEntry* import_first_ent = node->value;
-    uint64_t last = import_first_ent->index + listLength(ents) - 1;
+    uint64_t last = import_first_ent->index + listLength(copy_entries) - 1;
     if(last < first)
     {
         return StorageOk;
@@ -164,7 +166,7 @@ StorageError AppendEntriesToStorage(memoryStorage* ms, list* ents)
         uint64_t count = first - import_first_ent->index;
         while(count > 0)
         {
-            listDelNode(ents, listFirst(ents));
+            listDelNode(copy_entries, listFirst(copy_entries));
             count--;
         }       
     }
@@ -177,7 +179,7 @@ StorageError AppendEntriesToStorage(memoryStorage* ms, list* ents)
             listDelNode(ms->entries, listLast(ms->entries));
             count--;
         }
-        listJoin(ms->entries, ents);        
+        listJoin(ms->entries, copy_entries);        
     }else
     {
         assert(false);

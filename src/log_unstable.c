@@ -6,7 +6,7 @@ unstable* createUnstable()
     unstable* uns = zmalloc(sizeof(unstable));
     uns->ssmd = createSnapshotMetaData();
     uns->entries = listCreate();
-    listSetFreeMethod(uns->entries, freeRaftEntry);
+    listSetFreeMethod(uns->entries, decRaftEntryRefCnt);
     uns->offset = 0;
     return uns;
 }
@@ -105,11 +105,13 @@ void unstableTruncateAndAppend(unstable* u, list* entries)
     uint64_t after = entry->index;
     if(after == u->offset + listLength(u->entries))
     {
+        listApplyFunc(entries, incRaftEntryRefCnt);
         listJoin(u->entries, entries);
     }else if(after <= u->offset)
     {
         u->offset = after;
         listEmpty(u->entries);
+        listApplyFunc(entries, incRaftEntryRefCnt);
         u->entries = entries;
     }else
     {
@@ -130,7 +132,8 @@ list* unstableSlice(unstable* u, uint64_t lo, uint64_t hi)
     uint64_t count = upper - lower;
     while(count > 0)
     {
-        raftEntry* ent = dupRaftEntry(node->value);
+        incRaftEntryRefCnt(node->value);
+        raftEntry* ent = node->value;
         listAddNodeTail(new_list, ent);
         node = listNextNode(node);
         count--;

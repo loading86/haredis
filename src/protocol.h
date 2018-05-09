@@ -16,6 +16,7 @@ typedef struct raftEntry
     uint64_t index;
     EntryType entryType;
     sds data;
+    uint8_t refCnt;
 }raftEntry;
 
 typedef enum MessageType
@@ -93,15 +94,15 @@ confState* dupConfState(const confState* cs);
 
 void freeConfState(confState* cs);
 
-
-
-
-
-
-
-
 raftEntry* createRaftEntry();
+
+void incRaftEntryRefCnt(raftEntry* entry);
+
+void decRaftEntryRefCnt(raftEntry* entry);
+
 void freeRaftEntry(raftEntry* entry);
+
+raftEntry* copyRaftEntry(raftEntry* entry);
 
 raftEntry* dupRaftEntry(const raftEntry* entry);
 
@@ -116,7 +117,6 @@ snapshot* createSnapShot();
 void freeSnapShot(snapshot* ss);
 
 snapshot* dupSnapShot(const snapshot* ss);
-
 
 raftMessage* createRaftMessage();
 

@@ -360,3 +360,14 @@ void listJoin(list *l, list *o) {
     o->head = o->tail = NULL;
     o->len = 0;
 }
+
+
+void listApplyFunc(list *l, traverseFunc func)
+{
+    listIter iter;
+    listNode *node;
+
+    listRewind(l, &iter);
+    while((node = listNext(&iter)) != NULL) {
+        func(node->value);   
+}

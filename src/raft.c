@@ -220,7 +220,11 @@ void stepFollower(struct raft* r, raftMessage* msg)
 
 void stepCandidate(struct raft* r, raftMessage* msg)
 {
-
+    MessageType vote_resp_type = MessageVoteResp;
+    switch(msg->type)
+    {
+        case 
+    }
 }
 
 void stepLeader(struct raft* r, raftMessage* msg)
