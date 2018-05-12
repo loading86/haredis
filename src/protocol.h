@@ -63,8 +63,8 @@ typedef struct raftMessage
     uint8_t from;
     uint8_t to;
     uint64_t term;
-    uint64_t preLogIndex;
-    uint64_t preLogTerm;
+    uint64_t index;
+    uint64_t logTerm;
     uint64_t commited;
     list* entries;
     snapshot* ss;

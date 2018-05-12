@@ -240,7 +240,7 @@ void stepLeader(struct raft* r, raftMessage* msg)
             pr->active = true;
             if(msg->reject)
             {
-                if(maybeDecrTo(pr, msg->preLogIndex, msg->lastMatchIndex))
+                if(maybeDecrTo(pr, msg->index, msg->lastMatchIndex))
                 {
                     if(pr->state == NodeStateReplicate)
                     {
@@ -251,7 +251,7 @@ void stepLeader(struct raft* r, raftMessage* msg)
             }else
             {
                 bool can_send = canSend(pr);
-                if(maybeUpdate(pr, msg->preLogIndex))
+                if(maybeUpdate(pr, msg->index))
                 {
                     switch(pr->state)
                     {
@@ -262,7 +262,7 @@ void stepLeader(struct raft* r, raftMessage* msg)
                         }
                         case NodeStateReplicate:
                         {
-                            freeInflights(pr->ins, msg->preLogIndex);
+                            freeInflights(pr->ins, msg->index);
                             break;
                         }
                         case NodeStateSnapshot:
@@ -404,7 +404,7 @@ void stepFollower(struct raft* r, raftMessage* msg)
             break;
         case MessageReadIndexResp:
             ReadState *rs = createReadState();
-            rs->index = msg->preLogIndex;
+            rs->index = msg->index;
             raftEntry* ent = listFirst(msg->entries)->value;
             rs->requestCtx = sdsdup(ent->data);
             listAddNodeTail(r->readStates, rs);
@@ -541,8 +541,8 @@ void sendAppend(raft* r, uint64_t to)
     }else
     {
         msg->type = MessageApp;
-        msg->preLogIndex = pr->next - 1;
-        msg->preLogTerm = term_res.term;
+        msg->index = pr->next - 1;
+        msg->logTerm = term_res.term;
         msg->entries = entries_res.entries;
         msg->commited = r->raftlog->commited;
         int len = listLength(msg->entries);
@@ -649,7 +649,7 @@ bool Step(raft* r, raftMessage* msg)
             m->to = msg->from;
             m->term = msg->term;
             m->type = MessageVoteResp;
-            if((r->voteFor == 0 || r->voteFor == msg->from) && isUpToDate(r->raftlog, msg->preLogIndex, msg->preLogTerm))
+            if((r->voteFor == 0 || r->voteFor == msg->from) && isUpToDate(r->raftlog, msg->index, msg->logTerm))
             {               
                 sendMsg(r, m);
                 r->electionElapsed = 0;
@@ -669,5 +669,5 @@ bool Step(raft* r, raftMessage* msg)
 
 void handleAppendEntries(raft* r, raftMessage* msg)
 {
-    
+
 }

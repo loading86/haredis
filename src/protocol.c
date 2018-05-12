@@ -134,8 +134,8 @@ raftMessage* createRaftMessage()
     msg->from = 0;
     msg->to = 0;
     msg->term = 0;
-    msg->preLogIndex = 0;
-    msg->preLogTerm = 0;
+    msg->index = 0;
+    msg->logTerm = 0;
     msg->commited = 0;
     msg->entries = listCreate();
     msg->ss = createSnapShot();
@@ -170,8 +170,8 @@ raftMessage* dupRaftMessage(const raftMessage* msg)
     new_msg->from = msg->from;
     new_msg->to = msg->to;
     new_msg->term = msg->term;
-    new_msg->preLogIndex = msg->preLogIndex;
-    new_msg->preLogTerm = msg->preLogTerm;
+    new_msg->index = msg->index;
+    new_msg->logTerm = msg->logTerm;
     new_msg->commited = msg->commited;
     new_msg->entries = listDup(msg->entries);
     new_msg->ss = dupSnapShot(msg->ss);
