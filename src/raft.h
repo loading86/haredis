@@ -30,6 +30,14 @@ typedef enum NodeStateType
     NodeStateLeader
 }NodeStateType;
 
+typedef struct voteInfo 
+{
+    uint8_t id;
+    bool granted;
+}voteInfo;
+
+bool matchVoteInfo(voteInfo* a, voteInfo* b);
+
 typedef struct raft
 {
     uint8_t id;
@@ -45,8 +53,8 @@ typedef struct raft
     bool checkQuorum;
     uint64_t maxSizePerMsg;
     uint64_t maxInflightMsgs;   
-    list* peers;
-    list* votes;
+    dict* peers;
+    dict* votes;
     list* msgs;
     raftLog* raftlog;
     bool pendingConf;
@@ -74,5 +82,7 @@ void tickElection(struct raft* r);
 void tickHeartbeat(struct raft* r);
 
 void appendEntry(raft* r, raftEntry* entry);
+
+int numOfPendingConf(list* ents);
 
 #endif // !__RAFT__

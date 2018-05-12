@@ -2,6 +2,39 @@
 #include "rand.h"
 #include <assert.h>
 //#include "server.h"
+
+bool matchVoteInfo(voteInfo* a, voteInfo* b)
+{
+    return a->id == b->id;
+}
+
+unsigned int dictKeyHash(const void *keyp) {
+    unsigned long key = (unsigned long)keyp;
+    key = dictGenHashFunction(&key,sizeof(key));
+    key += ~(key << 15);
+    key ^=  (key >> 10);
+    key +=  (key << 3);
+    key ^=  (key >> 6);
+    key += ~(key << 11);
+    key ^=  (key >> 16);
+    return key;
+}
+
+int dictKeyCompare(void *privdata, const void *key1, const void *key2) {
+    unsigned long k1 = (unsigned long)key1;
+    unsigned long k2 = (unsigned long)key2;
+    return k1 == k2;
+}
+
+dictType intKeydictType = {
+    dictKeyHash,                   /* hash function */
+    NULL,                          /* key dup */
+    NULL,                          /* val dup */
+    dictKeyCompare,                /* key compare */
+    NULL,                          /* key destructor */
+    NULL                           /* val destructor */
+};
+
 raft* newRaft(raftConfig* cfg)
 {
     raftLog* log = newRaftLog(cfg->storage);
@@ -21,8 +54,8 @@ raft* newRaft(raftConfig* cfg)
     r->leader = 0;
     r->maxSizePerMsg = cfg->maxSizePerMsg;
     r->maxInflightMsgs = cfg->maxInflightMsgs;
-    r->peers = listCreate();
-    r->votes = listCreate();
+    r->peers = dictCreate(&intKeydictType, NULL);
+    r->votes = dictCreate(&intKeydictType, NULL);
     //listSetFreeMethod(free); todo
     r->electionTimeout = cfg->electionTick;
     r->heartbeatTimeout = cfg->heartbeatTick;
@@ -41,8 +74,9 @@ raft* newRaft(raftConfig* cfg)
         peer = (uint8_t)ln->value;
         raftNodeProgress* pr = newRaftNodeProgress(peer, r->maxInflightMsgs);
         pr->next = 1;
-        listAddNodeTail(r->peers, pr);
+        dictAdd(r->peers, peer, pr);
     }
+
     becomeFollower(r, r->term, 0);
     return r;
 
@@ -59,18 +93,18 @@ void resetRaftTerm(raft* r, uint64_t term)
     r->electionElapsed = 0;
     r->heartbeatElapsed = 0;
     r->electionRandomTimeout = r->electionTick+ redisLrand48() % r->electionTick;
-    listEmpty(r->votes);
-    listIter li;
-    listRewind(r->peersProgress,&li);
+    dictEmpty(r->votes);
+    dictIterator* it = dictGetIterator(r->peers);
     raftNodeProgress* progress;
-    listNode* ln;
-    while ((ln = listNext(&li)) != NULL) {
-        progress = ln->value;
+    dictEntry* e = dictNext(it);
+    while (e != NULL) {
+        progress = dictGetEntryVal(e);
         resetRaftNodeProgress(progress, NodeStateProb);
         progress->next = lastIndex(r->raftlog) + 1;
-        if (progress->id == r->id) {
+        if (dictGetEntryKey(e) == r->id) {
             return progress->match = lastIndex(r->raftlog);
         }
+        e = dictNext(it);
     }    
 }
 
@@ -109,26 +143,30 @@ void becomeLeader(raft* r)
 
 raftNodeProgress* getProgress(raft* r, uint8_t id)
 {
-    listIter li;
-    listRewind(r->peersProgress,&li);
-    raftNodeProgress* progress;
-    listNode* ln;
-    while ((ln = listNext(&li)) != NULL) {
-        progress = ln->value;
-        if (progress->id == id) {
-            return progress;
+    dictIterator* it = dictGetIterator(r->peers);
+    dictEntry* e = dictNext(it);
+    while (e != NULL) {
+        if (dictGetEntryKey(e) == id) {
+            return dictGetEntryVal(e);
         }
-    }
+        e = dictNext(it);
+    }   
     return NULL;
 }
 
 
-void stepFollower(struct raft* r, raftMessage* msg)
+void stepLeader(struct raft* r, raftMessage* msg)
 {
     switch(msg->type)
     {
         case MessageBeat:
-            broadcastHeartbeat();
+            broadcastHeartbeat(r);
+            return;
+        case MessageCheckQuorum:
+            if(!checkQuorumActive(r))
+            {
+                becomeFollower(r->term, 0);
+            }
             return;
         case MessageProp:
             assert(listLength(msg->entries) != 0);
@@ -212,34 +250,221 @@ void stepFollower(struct raft* r, raftMessage* msg)
                 sendAppend(msg->from);
             }else
             {
-                
+                bool can_send = canSend(pr);
+                if(maybeUpdate(pr, msg->preLogIndex))
+                {
+                    switch(pr->state)
+                    {
+                        case NodeStateProb:
+                        {
+                            becomeReplicate(pr);
+                            break;
+                        }
+                        case NodeStateReplicate:
+                        {
+                            freeInflights(pr->ins, msg->preLogIndex);
+                            break;
+                        }
+                        case NodeStateSnapshot:
+                        {
+                            if(shouldAbortSnapshot(pr))
+                            {
+                                becomeProbe(pr);
+                            }
+                            break;
+                        }
+                    }
+                    if(maybeCommit(r))//todo
+                    {
+                        broadCastAppend(r);
+                    }else if(!can_send)
+                    {
+                        sendAppend(msg->from);
+                    }
+                }
+            }
+            break;
+        case MessageHeartBeat:
+            pr->active = true;
+            resumeProgress(pr);
+            if(pr->state == NodeStateReplicate && isInflightsFull(pr->ins))
+            {
+                freeFirstOneInflight(pr->ins);
+            }
+            if(pr->match < lastIndex(r->raftlog))
+            {
+                sendAppend(r, msg->from);
+            }
+            break;
+        case MessageSnapStatus:
+            if(pr->state != NodeStateSnapshot)
+            {
+                return;
+            }
+            if(msg->reject)
+            {
+                abortSnapshot(pr);
+            }
+            becomeProbe(pr);
+            pauseProgress(pr);
+            break;
+        case MessageUnreachable:
+            if(pr->state == NodeStateReplicate)
+            {
+                becomeProbe(pr);
             }
     }
 
 }
 
+int pollRaft(raft* r, uint64_t id, bool v)
+{
+    dictEntry* e = dictFind(r->votes, id);
+    if(e == NULL)
+    {
+        dictAdd(r->votes, id, 1);
+    }
+    int peers = dictSize(r->votes);
+    int granted = 0;
+    dictIterator* it = dictGetIterator(r->votes);
+    e = dictNext(it);
+    while(e != NULL)
+    {
+        if(int(e->v.val) == 1)
+        {
+            granted++;
+        } 
+    }
+    return granted;
+}
+
+
 void stepCandidate(struct raft* r, raftMessage* msg)
 {
-    MessageType vote_resp_type = MessageVoteResp;
     switch(msg->type)
     {
-        case 
+        case MessageProp:
+            serverLog(LL_NOTICE, "%d no leader at term %d; dropping proposal", r->id, r->term);
+            break;
+        case MessageApp:
+            becomeFollower(r, r->term, msg->from);
+            handleAppendEntries(r, msg);
+            break;
+        case MessageSnap:
+            becomeFollower(r, r->term, msg->from);
+            handleHeartBeat(r, msg);
+            break;
+        case MessageVoteResp:
+            int granted = pollRaft(r, msg->id, !msg->reject);
+            int quo = quorum(r);
+            if(quo == granted)
+            {
+                becomeLeader(r);
+                broadCastAppend(r);
+            }else if(quo == dictSize(r->votes) - granted)
+            {
+                becomeFollower(msg->from, 0);
+            }
+            break;
+        default:
+            break;
     }
 }
 
-void stepLeader(struct raft* r, raftMessage* msg)
+void stepFollower(struct raft* r, raftMessage* msg)
 {
-
+    switch(msg->type)
+    {
+        case MessageProp:
+            if(r->leader == 0)
+            {
+                return;
+            }
+            msg->to = r->leader;
+            sendMsg(r, msg);
+            break;
+        case MessageApp:
+            r->electionElapsed = 0;
+            r->leader = msg->from;
+            handleAppendEntry(r, m);//todo
+            break;
+        case MessageHeartBeat:
+            r->electionElapsed = 0;
+            r->leader = msg->from;
+            handleHeartBeat(r, m);
+            break;
+        case MessageSnap:
+            r->electionElapsed = 0;
+            r->leader = msg->from;
+            handleSnapshot(r, m);
+            break;
+        case MessageReadIndex:
+            msg->to = r->leader;
+            sendMsg(r, msg);
+            break;
+        case MessageReadIndexResp:
+            ReadState *rs = createReadState();
+            rs->index = msg->preLogIndex;
+            raftEntry* ent = listFirst(msg->entries)->value;
+            rs->requestCtx = sdsdup(ent->data);
+            listAddNodeTail(r->readStates, rs);
+            break;
+        default:
+            break;
+    }
 }
 
-void tickElection(struct raft* r)
+bool promotable(raft* r)
 {
-
+    dictEntry* e = dictFind(r->peers, r->id);
+    return e != NULL;
 }
 
-void tickHeartbeat(struct raft* r)
+bool pastElectionTimeout(raft* r)
 {
+    return r->electionElapsed >= r->electionRandomTimeout;
+}
 
+void tickElection(raft* r)
+{
+    r->electionElapsed++;
+    if(promotable(r) && pastElectionTimeout(r))
+    {
+        r->electionElapsed = 0;
+        raftMessage* m = createRaftMessage();
+        m->to = r->id;
+        m->type = MessageHup;
+        Step(r, m);
+        freeRaftMessage(m);
+    }
+}
+
+void tickHeartbeat(raft* r)
+{
+    r->electionElapsed++;
+    r->heartbeatElapsed++;
+    if(r->electionElapsed >= r->electionTimeout)
+    {
+        r->electionElapsed = 0;
+        raftMessage* m = createRaftMessage();
+        m->from = r->id;
+        m->type = MessageCheckQuorum;
+        Step(r, m);
+        freeRaftMessage(m);
+    }
+    if(r->state != NodeStateLeader)
+    {
+        return;
+    }
+    if(r->heartbeatElapsed >= r->heartbeatTimeout)
+    {
+        r->heartbeatElapsed = 0;
+        raftMessage* m = createRaftMessage();
+        m->from = r->id;
+        m->type = MessageBeat;
+        Step(r, m);
+        freeRaftMessage(m);
+    }
 }
 
 void appendEntry(raft* r, raftEntry* entry)
@@ -268,7 +493,7 @@ void appendEntries(raft* r, list* entries)
 
 uint64_t quorum(raft* r)
 {
-    return listLength(r->peers)/2 + 1;
+    return dictsize(r->peers)/2 + 1;
 }
 
 void sendMsg(raft* r, raftMessage* msg)
@@ -340,4 +565,109 @@ void sendAppend(raft* r, uint64_t to)
 
     }
     sendMsg(r, msg);
+}
+
+
+int numOfPendingConf(list* ents)
+{
+    int num = 0;
+    listNode* n = listFirst(ents);
+    while(n != NULL)
+    {
+        raftEntry* ent = n->value;
+        if(ent->type == EntryConfChange)
+        {
+            num++;
+        }
+    }    
+    return num;
+}
+
+bool Step(raft* r, raftMessage* msg)
+{
+    if(msg->term == 0)
+    {
+    }
+    else if(msg->term > r->term)
+    {
+        if(msg->type ==  MessageVote)
+        {
+            //todo compaignTransfer
+            bool in_lease = r->checkQuorum && r->leader != 0 && r->electionElapsed < r->electionTimeout;
+            if(in_lease)
+            {
+                return true;
+            }
+        }
+        if(msg->type == MessageApp || msg->type == MessageHeartBeat || msg->type == MessageSnap)
+        {
+            becomeFollower(msg->term, msg->from);
+        }else
+        {
+            becomeFollower(msg->term, 0);
+        }
+    }else if(msg->type < r->term)
+    {
+        raftMessage* m = createRaftMessage();
+        m->to = msg->from;
+        m->type = MessageAppResp;
+        sendMsg(r, m);
+        return true;
+    }
+
+    switch(msg->type)
+    {
+        case MessageHup:
+        {
+            if (r->state != NodeStateLeader)
+            {
+                EntriesResult res = slice(r->raftlog, r->raftlog->applied + 1, r->raftlog->commited + 1, UINT64_MAX);
+                if (res->err != StorageOk)
+                {
+                    serverLog(LL_WARNING, "unexpected error getting unapplied entries,err:%d", res->err);
+                    assert(false);
+                }
+                int num = numOfPendingConf(res->entries);
+                listRelease(res->entries);
+                if (num > 0)
+                {
+                    serverLog(LL_WARNING, "%d cannot campaign at term %d since there are still %d pending configuration changes to apply", r->id, r->term, num);
+                    return true;
+                }
+                serverLog(LL_NOTICE, "%d is starting a new election at term %d", r->id, r->term);
+                campaign(r);
+            }
+            else
+            {
+                serverLog(LL_NOTICE, "%d ignoring MsgHup because already leader", r->id);
+            }
+            break;
+        }
+        case MessageVote:
+        {
+            raftMessage* m = createRaftMessage();
+            m->to = msg->from;
+            m->term = msg->term;
+            m->type = MessageVoteResp;
+            if((r->voteFor == 0 || r->voteFor == msg->from) && isUpToDate(r->raftlog, msg->preLogIndex, msg->preLogTerm))
+            {               
+                sendMsg(r, m);
+                r->electionElapsed = 0;
+                r->voteFor = msg->from;
+            }else
+            {
+                m->reject = true;;
+                sendMsg(r, m);
+            }
+            break;
+        }
+        default:
+            r->step(r, msg);
+    }
+    return true;
+}
+
+void handleAppendEntries(raft* r, raftMessage* msg)
+{
+    
 }

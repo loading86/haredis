@@ -55,6 +55,16 @@ void removeInflights(inflights* inf, uint64_t index)
     }
 }
 
+void freeFirstOneInflight(inflights* inf)
+{
+    listNode* ln = listFirst(inf->buffer);
+    if(ln == NULL)
+    {
+        return;
+    }
+    listDelNode(inf->buffer, ln);
+}
+
 
 raftNodeProgress* newRaftNodeProgress(uint8_t id, uint64_t inflights_size)
 {
@@ -183,4 +193,14 @@ bool shouldAbortSnapshot(raftNodeProgress* node)
 void abortSnapshot(raftNodeProgress* node)
 {
     node->pendingSnapshotIndex = 0;
+}
+
+void resumeProgress(raftNodeProgress* node)
+{
+    node->paused = false;
+}
+
+void pauseProgress(raftNodeProgress* node)
+{
+    node->paused = true;
 }

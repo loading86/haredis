@@ -137,6 +137,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_LFU_LOG_FACTOR 10
 #define CONFIG_DEFAULT_LFU_DECAY_TIME 1
 #define CONFIG_DEFAULT_AOF_FILENAME "appendonly.aof"
+#define CONFIG_DEFAULT_AOF_DIRNAME "appendonly"
 #define CONFIG_DEFAULT_AOF_NO_FSYNC_ON_REWRITE 0
 #define CONFIG_DEFAULT_AOF_LOAD_TRUNCATED 1
 #define CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE 0
@@ -992,6 +993,9 @@ struct redisServer {
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */
     char *aof_filename;             /* Name of the AOF file */
+    char *aof_dirname;             /* Name of the AOF dir file */
+    int aof_current_index;         /* index of current aof file */
+    //int current_aof_size;
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */

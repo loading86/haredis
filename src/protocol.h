@@ -21,7 +21,9 @@ typedef struct raftEntry
 
 typedef enum MessageType
 {
-    MessageProp = 1,
+    MessageHup = 1;
+    MessageBeat,
+    MessageProp,
     MessageHeartBeat,
     MessageHeartBeatResp,
     MessageApp,
@@ -30,7 +32,10 @@ typedef enum MessageType
     MessageVoteResp,
     MessageReadIndex,
     MessageReadIndexResp,
-    MessageSnap
+    MessageSnap,
+    MessageSnapStatus,
+    MessageUnreachable,
+    MessageCheckQuorum
 }MessageType;
 
 typedef struct confState

@@ -13,6 +13,8 @@ inflights* newInflights(uint64_t size);
 
 void freeInflights(inflights* inf);
 
+void freeFirstOneInflight(inflights* inf);
+
 void resetInflights(inflights* inf);
 
 bool isInflightsFull(inflights* inf);
@@ -63,6 +65,10 @@ bool canSend(raftNodeProgress* node);
 bool shouldAbortSnapshot(raftNodeProgress* node);
 
 void abortSnapshot(raftNodeProgress* node);
+
+void resumeProgress(raftNodeProgress* node);
+
+void pauseProgress(raftNodeProgress* node);
 
 
 
