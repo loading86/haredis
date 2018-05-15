@@ -369,5 +369,6 @@ void listApplyFunc(list *l, traverseFunc func)
 
     listRewind(l, &iter);
     while((node = listNext(&iter)) != NULL) {
-        func(node->value);   
+        func(node->value);  
+    } 
 }

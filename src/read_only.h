@@ -1,6 +1,7 @@
 #ifndef  __READ_ONLY_H__
 #define __READ_ONLY_H__
-
+#include <inttypes.h>
+#include "sds.h"
 typedef struct ReadState
 {
     uint64_t index;

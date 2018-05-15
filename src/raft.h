@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include "adlist.h"
+#include "dict.h"
 #include "raftlog.h"
 #include "node_progress.h"
 
@@ -85,4 +86,25 @@ void appendEntry(raft* r, raftEntry* entry);
 
 int numOfPendingConf(list* ents);
 
+int pollRaft(raft* r, uint64_t id, bool v);
+
+int quorum(raft* r);
+
+bool Step(raft* r, raftMessage* msg);
+
+bool restoreSnapshot(raft* r, snapshot* ss);
+
+void restoreNode(raft* r, list* nodes);
+
+bool maybeCommitRaft(raft* r);
+
+bool checkQuorumActive(raft* r);
+
+void campaign(raft* r);
+
+void broadCastAppend(raft* r);
+
+void sendHeartBeat(raft* r, uint64_t to);
+
+void broadcastHeartbeat(raft *r);
 #endif // !__RAFT__

@@ -64,7 +64,7 @@ EntriesResult getStorageEntries(memoryStorage* ms, uint64_t lo, uint64_t hi, uin
     uint64_t count = upper - lower;
     while(count > 0)
     {
-        incRaftEntryRefCnt()node->value;
+        incRaftEntryRefCnt(node->value);
         raftEntry* ent = node->value;
         listAddNodeTail(result.entries, ent);
         node = listNextNode(node);

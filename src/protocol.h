@@ -21,7 +21,7 @@ typedef struct raftEntry
 
 typedef enum MessageType
 {
-    MessageHup = 1;
+    MessageHup = 1,
     MessageBeat,
     MessageProp,
     MessageHeartBeat,
